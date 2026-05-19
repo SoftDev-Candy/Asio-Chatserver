@@ -197,5 +197,5 @@ endif()
 # SOUL needs sqlite3 because the server writes telemetry to the database.
 # Client/Test only need the shared codec/JSON/networking support.
 target_link_libraries(SOUL PRIVATE sqlite3 soul_boost_json ${SOUL_PLATFORM_LIBS})
-target_link_libraries(Client PRIVATE soul_boost_json ${SOUL_PLATFORM_LIBS})
+target_link_libraries(Client PRIVATE sqlite3 soul_boost_json ${SOUL_PLATFORM_LIBS})
 target_link_libraries(Test PRIVATE soul_boost_json ${SOUL_PLATFORM_LIBS})
