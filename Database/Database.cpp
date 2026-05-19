@@ -42,7 +42,13 @@ int Database::CreateTable()
                         "timestamp_ms       INTEGER NOT NULL, "
                         "battery            REAL NOT NULL, "
                         "temperature        REAL NOT NULL, "
-                        "received_ms        INT NOT NULL );";
+                        "received_ms        INT NOT NULL );"
+                        "CREATE TABLE IF NOT EXISTS ControlCommands("
+                        "id                 INTEGER PRIMARY KEY AUTOINCREMENT, "
+                        "satellite_name     TEXT NOT NULL, "
+                        "command            TEXT NOT NULL, "
+                        "created_ms         INTEGER NOT NULL, "
+                        "processed          INTEGER NOT NULL DEFAULT 0 );";
 
     //Apparently this exec function cant take strings so we use only chars now
     //FIXME -- WRAP THIS WHOLE SEGMENT IN A TRY AND CATCH MAYBE //
