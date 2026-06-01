@@ -5,6 +5,7 @@
 #ifndef SOUL_SIMULATIONSTATE_HPP
 #define SOUL_SIMULATIONSTATE_HPP
 #include"../Common/TelemetryFrame.hpp"
+#include "../Common/ScenarioState.hpp"
 #include <optional>
 
 // This is the simple mood board for a satellite.
@@ -40,6 +41,7 @@ private:
     SatelliteMode mode = SatelliteMode::Nominal;
     int tick_counter = 0;
     int signal_loss_ticks_left = 0;
+    int repair_ticks_left = 0;
 
 public:
     // Builds one small satellite state machine with its own starting health values and drift behavior.
@@ -53,7 +55,13 @@ public:
 
     // Generates the next telemetry frame after applying the simple behavior rules.
     // If we are faking signal loss right now, this can return no frame for this tick.
-    std::optional<TelemetryFrame> MakeNextFrame();
+    std::optional<TelemetryFrame> MakeNextFrame(ScenarioState scenarioState);
+
+    // Lets the sender match pending repair commands to the right satellite.
+    const std::string& GetSatelliteId() const;
+
+    // Gives the satellite a small recovery boost so the repair button actually does something.
+    void ApplyRepairCommand();
 
 };
 

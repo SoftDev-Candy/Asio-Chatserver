@@ -35,7 +35,7 @@ private:
     QOpenGLBuffer vbo{QOpenGLBuffer::VertexBuffer};
     QOpenGLBuffer ebo{QOpenGLBuffer::IndexBuffer};
 
-    // One texture for this mesh. Nice and simple, no material chaos today.
+    // One texture for this mesh. Keeping it simple for this project.
     QOpenGLTexture* texture = nullptr;
 
     // Draw count for glDrawElements so we do not have to do weird math every frame.

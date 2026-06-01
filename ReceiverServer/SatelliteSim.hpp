@@ -20,37 +20,39 @@ namespace{
     using boost::asio::ip::tcp;
     using std::mutex;
 }
+
 class SatelliteSim
 {
 public:
-    //Constructor
+    // Builds the server with the address/port it should listen on.
     SatelliteSim( std::string add , unsigned short int port_i );
 
-    //Names says it all but responsible to run the server
+    // Main backend loop that keeps accepting clients and spinning handlers forever.
     void RunServer();
 
-    //Will receive telemetry data and parse thru it and print it out for now
+    // Handles one client socket: decode frame, validate JSON, write DB, send ACK.
     void ReceiveTelemetry(tcp::socket &socket) const;
 
-    //Frame kid baby frame...frame bébé(In frence accent)
+    // Shared framing helper so sender and receiver speak the same wire language.
     FrameCodec Frame;
 
 private:
+    // Small setup helper so the constructor does not become one giant wall of network setup text.
     tcp::acceptor create_tcp_acceptor();
 
-    //Basically the I/O Engine for boost.
+    // Basically the I/O engine for Boost.Asio.
     boost::asio::io_context io_context;
-    //boost acceptor
+
+    // The acceptor is the thing that actually listens for incoming TCP clients.
     tcp::acceptor acceptor;
-    //Counts the amount of clients connected not required now but can be used to keep track of the satellite
-     uint_fast64_t clientCount = 0 ;
+
+    // Keeps count of clients that have connected so far.
+    uint_fast64_t clientCount = 0 ;
     std::string address;
     unsigned short int PORT;
 
-    //To Store the current state of the pushed data//
-   static std::unordered_map<std::string ,TelemetryFrame>TelemetryStateMap ;
-
+    // Stores the newest frame for each satellite in memory.
+    static std::unordered_map<std::string ,TelemetryFrame>TelemetryStateMap ;
 };
-
 
 #endif //CHATSERVER_CHATSERVER_H

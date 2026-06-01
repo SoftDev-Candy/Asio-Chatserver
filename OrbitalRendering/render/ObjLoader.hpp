@@ -7,6 +7,8 @@
 #include<string>
 #include"MeshData.hpp"
 
+// Reads an OBJ file and packs it into the MeshData layout this project expects.
+// The output layout is 8 floats per vertex: position xyz, uv, normal xyz.
 bool LoadObjToMeshData(const std::string& path , MeshData& meshout);
 
 class ObjLoader {

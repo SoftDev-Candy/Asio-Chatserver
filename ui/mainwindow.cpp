@@ -7,136 +7,13 @@
 #include <QFileInfo>
 #include <QHeaderView>
 #include <QLabel>
+#include <QPushButton>
 #include <QSignalBlocker>
 #include <QTableWidgetItem>
 #include <QStringList>
-#include <chrono>
 #include <iostream>
 #include "ui_mainwindow.h"
 #include "../external/sqlite/sqlite3.h"
-
-namespace
-{
-// Just gets the current time in milliseconds so the status math can stay simple.
-qint64 NowMs()
-{
-    auto now = std::chrono::system_clock::now().time_since_epoch();
-    return std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
-}
-
-// Turns "how stale is this packet" into a small operator-friendly status word.
-QString GetLinkStatus(qint64 ageMs)
-{
-    if (ageMs < 3000)
-    {
-        return "Connected";
-    }
-
-    if (ageMs <= 7000)
-    {
-        return "Degraded";
-    }
-
-    return "Disconnected";
-}
-
-// Tiny battery grading helper so the UI can say more than just a number.
-QString GetBatteryStatus(double battery)
-{
-    if (battery < 30.0)
-    {
-        return "Critical";
-    }
-
-    if (battery <= 70.0)
-    {
-        return "Normal";
-    }
-
-    return "Good";
-}
-
-// Same idea but for temperature, because "44.2" by itself does not tell much of a story.
-QString GetTempStatus(double temperature)
-{
-    if (temperature < 0.0)
-    {
-        return "Critical Low";
-    }
-
-    if (temperature < 15.0)
-    {
-        return "Low";
-    }
-
-    if (temperature <= 60.0)
-    {
-        return "Normal";
-    }
-
-    if (temperature <= 75.0)
-    {
-        return "High";
-    }
-
-    return "Critical High";
-}
-
-// This is the lazy summary line that squashes a few health checks into one word.
-QString GetHealthStatus(const QString& linkStatus, const QString& batteryStatus, const QString& temperatureStatus)
-{
-    if (linkStatus == "Disconnected")
-    {
-        return "Offline";
-    }
-
-    if (batteryStatus.contains("Critical") || temperatureStatus.contains("Critical"))
-    {
-        return "Attention";
-    }
-
-    if (linkStatus == "Degraded" || temperatureStatus == "High")
-    {
-        return "Warning";
-    }
-
-    return "Nominal";
-}
-
-// Makes the raw millisecond timestamp look like something a human can read.
-QString FormatTimeText(qint64 epochMs)
-{
-    return QDateTime::fromMSecsSinceEpoch(epochMs).toString("yyyy-MM-dd hh:mm:ss");
-}
-
-// We do not store packet size in the DB yet, so this is our best educated guess for now.
-QString GuessPacketSize(const QString& satName, qint64 sequence, qint64 timestampMs, double battery, double temperature)
-{
-    // No packet-size column lives in SQLite yet, so we estimate the payload size from the frame shape we already use.
-    const QString payload = QString("{\"sat_id\":\"%1\",\"sequence\":%2,\"timestamp_ms\":%3,\"battery\":%4,\"temp_c\":%5}")
-        .arg(satName)
-        .arg(sequence)
-        .arg(timestampMs)
-        .arg(QString::number(battery, 'f', 2))
-        .arg(QString::number(temperature, 'f', 2));
-
-    return QString::number(payload.toUtf8().size()) + " B";
-}
-
-// Clears the detail labels when nothing useful is selected or connected.
-void ClearDetailLabels(Ui::mainwindow* ui)
-{
-    ui->SatelliteName_Label->setText("N/A");
-    ui->LinkStatus_Connection->setText("Disconnected");
-    ui->PacketLoss_Connection->setText("N/A");
-    ui->Latency_Data->setText("N/A");
-    ui->Battery_Data->setText("N/A");
-    ui->Temprature_Data->setText("N/A");
-    ui->Battery_StatusData->setText("N/A");
-    ui->Temp_StatusData->setText("N/A");
-    ui->Health_StatusData->setText("N/A");
-}
-}
 
 mainwindow::mainwindow(QWidget *parent)
     : QWidget(parent)
@@ -146,21 +23,35 @@ mainwindow::mainwindow(QWidget *parent)
     resize(1280, 860);
     setMinimumSize(1280, 860);
 
-    // Build the two tables first so the rest of the refresh code has a sane place to drop data.
-    ConfigureTelemetryTable();
-    ConfigureSatelliteTable();
-    StyleTheUi();
+    // Basic widget setup gets pushed into a helper so this constructor stays readable (❁´◡`❁)
+    DashboardUiHelper::ConfigureTelemetryTable(ui->DatabaseTable);
+    DashboardUiHelper::ConfigureSatelliteTable(ui->SatelliteTable);
+    DashboardUiHelper::StyleDashboard(ui);
+    operatorActionBox.Build(this);
 
-    // This label is our "hey nothing is connected right now" message.
+    // If the UI starts while the storm scenario file already says "storm on", match that right away.
+    ScenarioState sharedScenario = LoadSharedScenarioState();
+    stormIsActive = sharedScenario == ScenarioState::SolarStormActive;
+    operatorActionBox.SetStormWarningVisible(sharedScenario == ScenarioState::SolarStormActive);
+    if (ui->OrbitView != nullptr)
+    {
+        // Sync the scene to the shared scenario file right away so the UI and sender do not start out mismatched (￣y▽,￣)╭
+        ui->OrbitView->SetScenarioState(sharedScenario);
+    }
+
+    // This label is our little "yo... nothing is talking yet" message (┬┬﹏┬┬)
     noSatelliteLabel = new QLabel("No active satellite connection", this);
     noSatelliteLabel->setGeometry(16, 20, 260, 24);
     noSatelliteLabel->setStyleSheet("color: rgb(235, 235, 235); font-weight: 600;");
     noSatelliteLabel->hide();
 
-    // Clicking a satellite row is what wakes up the detail panel and the 3D selection.
+    // Clicking a satellite row is what wakes up the detail panel and the 3D selection. Main character moment fr.
     connect(ui->SatelliteTable, &QTableWidget::cellClicked, this, &mainwindow::OnSatelliteRowClicked);
+    connect(operatorActionBox.StormButton(), &QPushButton::clicked, this, &mainwindow::OnTriggerSolarStorm);
+    connect(operatorActionBox.ResetButton(), &QPushButton::clicked, this, &mainwindow::OnResetScenario);
+    connect(operatorActionBox.RepairButton(), &QPushButton::clicked, this, &mainwindow::OnRepairSelectedSatellite);
 
-    // Tiny clock goblin that keeps poking the UI once a second.
+    // Refresh once a second so the dashboard keeps up with new rows without overworking the UI. Nice and chill ¯\_(ツ)_/¯
     refreshTimer = new QTimer(this);
     connect(refreshTimer , &QTimer::timeout ,this , &mainwindow::RefreshTelemetryView);
 
@@ -173,141 +64,117 @@ mainwindow::~mainwindow()
     delete ui;
 }
 
-// Sets up the top table that lists the latest known state for each satellite.
-void mainwindow::ConfigureSatelliteTable()
+void mainwindow::OnTriggerSolarStorm()
 {
-    ui->SatelliteTable->setColumnCount(4);
-    ui->SatelliteTable->setHorizontalHeaderLabels({
-        "Satellite Name",
-        "Link Status",
-        "Battery",
-        "Temperature"
-    });
-    ui->SatelliteTable->setRowCount(0);
-    ui->SatelliteTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    ui->SatelliteTable->setSelectionMode(QAbstractItemView::SingleSelection);
-    ui->SatelliteTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    ui->SatelliteTable->setAlternatingRowColors(true);
-    ui->SatelliteTable->verticalHeader()->setVisible(false);
-    ui->SatelliteTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    operatorActionBox.SetStormWarningVisible(true);
+    SaveSharedScenarioState(ScenarioState::SolarStormActive);
+    stormIsActive = true;
+
+    if (ui->OrbitView != nullptr)
+    {
+        // No OrbitView means maybe the UI is only half alive, so we quietly skip the visual push here. No drama needed :')
+        ui->OrbitView->TriggerSolarStorm();
+    }
 }
 
-// Sets up the lower telemetry history table for the currently selected satellite.
-void mainwindow::ConfigureTelemetryTable()
+void mainwindow::OnResetScenario()
 {
-    ui->DatabaseTable->setColumnCount(10);
-    ui->DatabaseTable->setHorizontalHeaderLabels({
-        "Sequence",
-        "Timesent_ms",
-        "Received_ms",
-        "Latency_ms",
-        "Age_ms",
-        "Link Status",
-        "Battery",
-        "Temperature",
-        "PacketSize",
-        "Date & Time"
-    });
-    ui->DatabaseTable->setRowCount(0);
-    ui->DatabaseTable->setSelectionMode(QAbstractItemView::NoSelection);
-    ui->DatabaseTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    ui->DatabaseTable->setAlternatingRowColors(true);
-    ui->DatabaseTable->verticalHeader()->setVisible(false);
-    ui->DatabaseTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
-    ui->DatabaseTable->horizontalHeader()->setDefaultSectionSize(120);
-    ui->DatabaseTable->horizontalHeader()->setStretchLastSection(true);
-    ui->DatabaseTable->setCursor(Qt::ArrowCursor);
+    operatorActionBox.SetStormWarningVisible(false);
+    SaveSharedScenarioState(ScenarioState::Normal);
+    stormIsActive = false;
+
+    if (ui->OrbitView != nullptr)
+    {
+        ui->OrbitView->ResetScenario();
+    }
 }
 
-// Gives the widgets a cleaner mission-control look without messing with the actual UI layout too much.
-void mainwindow::StyleTheUi()
+void mainwindow::OnRepairSelectedSatellite()
 {
-    // Just enough styling so the panels feel a bit more mission-control and a bit less default-widget-core.
-    const QString tableStyle =
-        "QTableWidget {"
-        " background-color: rgba(8, 14, 24, 210);"
-        " color: rgb(232, 238, 245);"
-        " gridline-color: rgba(120, 150, 180, 70);"
-        " border: 1px solid rgba(120, 150, 180, 90);"
-        " border-radius: 10px;"
-        " selection-background-color: rgba(72, 145, 220, 160);"
-        " selection-color: white;"
-        "}"
-        "QHeaderView::section {"
-        " background-color: rgba(20, 30, 46, 220);"
-        " color: rgb(226, 234, 244);"
-        " border: none;"
-        " padding: 6px;"
-        " font-weight: 600;"
-        "}";
+    if (selectedSatelliteName.isEmpty())
+    {
+        // No selected satellite means we do not know who to repair, so we stop here and tell the operator plainly.
+        operatorActionBox.ShowMessage("Select a satellite first");
+        return;
+    }
 
-    ui->SatelliteTable->setStyleSheet(tableStyle);
-    ui->DatabaseTable->setStyleSheet(tableStyle);
+    // Same repair command path works during a storm, after a storm, or with the backend waking up later.
+    if (!InsertRepairCommand(selectedSatelliteName))
+    {
+        const QString fallbackText = activeDatabasePath.isEmpty() ? "Backend not running" : "Could not send repair command";
+        operatorActionBox.ShowMessage(fallbackText);
+        return;
+    }
 
-    ui->layoutWidget->setAttribute(Qt::WA_StyledBackground, true);
-    ui->layoutWidget_2->setAttribute(Qt::WA_StyledBackground, true);
+    if (ui->OrbitView != nullptr)
+    {
+        ui->OrbitView->BeginSatelliteRepair(selectedSatelliteName);
+    }
 
-    const QString panelStyle =
-        "QWidget {"
-        " background-color: rgba(8, 14, 24, 170);"
-        " border: 1px solid rgba(120, 150, 180, 90);"
-        " border-radius: 12px;"
-        "}"
-        "QLabel {"
-        " color: rgb(232, 238, 245);"
-        " background: transparent;"
-        " border: none;"
-        "}";
-
-    ui->layoutWidget->setStyleSheet(panelStyle);
-    ui->layoutWidget_2->setStyleSheet(panelStyle);
-
-    // Put the cards back into a clean two-column feel instead of the fully centered look.
-    ui->SatelliteData_Left->setContentsMargins(14, 14, 14, 14);
-    ui->SatelliteData_Right->setContentsMargins(14, 14, 14, 14);
-    ui->SatelliteData_Left->setSpacing(10);
-    ui->SatelliteData_Right->setSpacing(12);
-    ui->SatelliteData_Left->setAlignment(Qt::AlignTop);
-    ui->SatelliteData_Right->setAlignment(Qt::AlignTop);
-
-    ui->SatelliteName_Layout->setAlignment(Qt::AlignLeft);
-    ui->LinkStatus_Layout->setAlignment(Qt::AlignLeft);
-    ui->PacketLoss_Layout->setAlignment(Qt::AlignLeft);
-    ui->Latency_Layout->setAlignment(Qt::AlignLeft);
-    ui->Battery_Layout->setAlignment(Qt::AlignLeft);
-    ui->Temprature_Layout->setAlignment(Qt::AlignLeft);
-    ui->Battery_StatusLayout->setAlignment(Qt::AlignLeft);
-    ui->Health_StatusLayout->setAlignment(Qt::AlignLeft);
-    ui->Temp_StatusLayout->setAlignment(Qt::AlignLeft);
-
-    // Give the headers a fixed-ish width so the value labels line up like a neat little status grid.
-    ui->SatelliteName_Header->setMinimumWidth(96);
-    ui->LinkStatus_Header->setMinimumWidth(96);
-    ui->PacketLoss_Header->setMinimumWidth(96);
-    ui->Latency_Header->setMinimumWidth(96);
-    ui->Battery_Header->setMinimumWidth(96);
-    ui->Latency_Header_3->setMinimumWidth(96);
-    ui->Battery_StatusHeader->setMinimumWidth(108);
-    ui->Health_StatusHeader->setMinimumWidth(108);
-    ui->Temp_StatusHeader->setMinimumWidth(108);
-
-    ui->SatelliteName_Label->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    ui->LinkStatus_Connection->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    ui->PacketLoss_Connection->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    ui->Latency_Data->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    ui->Battery_Data->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    ui->Temprature_Data->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    ui->Battery_StatusData->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    ui->Health_StatusData->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    ui->Temp_StatusData->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-
-    // A couple header names were funky, so this puts them back into something more readable.
-    ui->Battery_StatusHeader->setText("Battery :");
-    ui->Health_StatusHeader->setText("Health :");
-    ui->Temp_StatusHeader->setText("Temp :");
+    operatorActionBox.ShowMessage("Repair command sent to " + selectedSatelliteName);
 }
 
-// Fills the top satellite table using the newest telemetry row we have for each satellite.
+bool mainwindow::InsertRepairCommand(const QString& satelliteName)
+{
+    const QString dbpath = !activeDatabasePath.isEmpty() ? activeDatabasePath : ResolveDatabasePath();
+    if (dbpath.isEmpty())
+    {
+        // If we do not know where the DB lives, there is nowhere to drop the command. Bit awkward innit (￣y▽,￣)╭
+        return false;
+    }
+
+    activeDatabasePath = dbpath;
+
+    sqlite3* db = nullptr;
+    sqlite3_stmt* insertStmt = nullptr;
+    QByteArray dbPathUtf8 = dbpath.toUtf8();
+
+    if (sqlite3_open_v2(dbPathUtf8.constData(), &db, SQLITE_OPEN_READWRITE, nullptr) != SQLITE_OK)
+    {
+        // Open failure usually means the backend DB is missing or locked in a bad way. Backend said "not today" I guess.
+        sqlite3_close(db);
+        return false;
+    }
+
+    sqlite3_busy_timeout(db, 1000);
+
+    const char* createSql =
+        "CREATE TABLE IF NOT EXISTS ControlCommands("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "satellite_name TEXT NOT NULL, "
+        "command TEXT NOT NULL, "
+        "created_ms INTEGER NOT NULL, "
+        "processed INTEGER NOT NULL DEFAULT 0 );";
+
+    if (sqlite3_exec(db, createSql, nullptr, nullptr, nullptr) != SQLITE_OK)
+    {
+        // If the command table cannot exist, the repair loop has nowhere to stash orders. Sad times fr fr.
+        sqlite3_close(db);
+        return false;
+    }
+
+    const char* insertSql =
+        "INSERT INTO ControlCommands (satellite_name, command, created_ms, processed) "
+        "VALUES (?, 'REPAIR', ?, 0)";
+
+    if (sqlite3_prepare_v2(db, insertSql, -1, &insertStmt, nullptr) != SQLITE_OK)
+    {
+        sqlite3_finalize(insertStmt);
+        sqlite3_close(db);
+        return false;
+    }
+
+    QByteArray satNameUtf8 = satelliteName.toUtf8();
+    sqlite3_bind_text(insertStmt, 1, satNameUtf8.constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(insertStmt, 2, DashboardUiHelper::NowMs());
+
+    bool didInsert = sqlite3_step(insertStmt) == SQLITE_DONE;
+    sqlite3_finalize(insertStmt);
+    sqlite3_close(db);
+    return didInsert;
+}
+
+// Fills the top satellite table using the newest telemetry row we have for each satellite. Small but mighty table (❁´◡`❁)
 void mainwindow::PopulateSatelliteTable()
 {
     ui->SatelliteTable->setRowCount(satellites.size());
@@ -326,18 +193,18 @@ void mainwindow::PopulateSatelliteTable()
     }
 }
 
-// Loads the recent packet history for whichever satellite the operator clicked on.
+// Loads the recent packet history for whichever satellite the operator clicked on. This is the "show me receipts" bit.
 void mainwindow::PopulateTelemetryTable()
 {
     ui->DatabaseTable->setRowCount(0);
 
-    // No selected satellite means no detail history yet, so we quietly bail out.
+    // No selected satellite means no detail history yet, so we quietly bail out. Nothing to yap about yet.
     if (selectedSatelliteName.isEmpty())
     {
         return;
     }
 
-    // Use the same DB path the refresh loop picked, otherwise we might read from the wrong random build folder copy.
+    // Use the same DB path the refresh loop picked, otherwise we might read from the wrong random build folder copy. Been there, very cursed.
     const QString dbpath = !activeDatabasePath.isEmpty() ? activeDatabasePath : ResolveDatabasePath();
     if (dbpath.isEmpty())
     {
@@ -351,7 +218,8 @@ void mainwindow::PopulateTelemetryTable()
     int rc = sqlite3_open_v2(dbPathUtf8.constData(), &DB, SQLITE_OPEN_READONLY, nullptr);
     if (rc != SQLITE_OK)
     {
-        std::cerr << "Failed to open database ERROR  : " << sqlite3_errmsg(DB) << "\n";
+        // If the DB cannot be opened, we do not keep digging.
+        // The refresh loop will try again on the next tick, nice and calm (￣y▽,￣)╭
         sqlite3_close(DB);
         return;
     }
@@ -380,10 +248,10 @@ void mainwindow::PopulateTelemetryTable()
             double battery = sqlite3_column_double(stmt, 3);
             double temperature = sqlite3_column_double(stmt, 4);
             qint64 latencyMs = receivedMs - timestampMs;
-            qint64 ageMs = NowMs() - receivedMs;
-            QString linkStatus = GetLinkStatus(ageMs);
-            QString packetSize = GuessPacketSize(selectedSatelliteName, sequence, timestampMs, battery, temperature);
-            QString displayTime = FormatTimeText(receivedMs);
+            qint64 ageMs = DashboardUiHelper::NowMs() - receivedMs;
+            QString linkStatus = DashboardUiHelper::LinkStatus(ageMs);
+            QString packetSize = DashboardUiHelper::EstimatePacketSize(selectedSatelliteName, sequence, timestampMs, battery, temperature);
+            QString displayTime = DashboardUiHelper::FormatTime(receivedMs);
 
             ui->DatabaseTable->setItem(row, 0, new QTableWidgetItem(QString::number(sequence)));
             ui->DatabaseTable->setItem(row, 1, new QTableWidgetItem(QString::number(timestampMs)));
@@ -396,10 +264,6 @@ void mainwindow::PopulateTelemetryTable()
             ui->DatabaseTable->setItem(row, 8, new QTableWidgetItem(packetSize));
             ui->DatabaseTable->setItem(row, 9, new QTableWidgetItem(displayTime));
         }
-    }
-    else
-    {
-        std::cerr << "Prepare has failed , Error in file mainwindow.cpp \n";
     }
 
     sqlite3_finalize(stmt);
@@ -421,17 +285,34 @@ void mainwindow::ApplySelectedSatellite()
         const SatelliteRow& sat = satellites[row];
         if (sat.name != selectedSatelliteName)
         {
+            // Skip rows until we hit the currently selected satellite.
             continue;
         }
 
-        QString batteryStatus = GetBatteryStatus(sat.battery);
-        QString temperatureStatus = GetTempStatus(sat.temperature);
-        QString healthStatus = GetHealthStatus(sat.linkStatus, batteryStatus, temperatureStatus);
+        QString batteryStatus = DashboardUiHelper::BatteryStatus(sat.battery);
+        QString temperatureStatus = DashboardUiHelper::TemperatureStatus(sat.temperature);
+        QString healthStatus = DashboardUiHelper::HealthStatus(sat.linkStatus, batteryStatus, temperatureStatus);
         qint64 latency = sat.receivedMs - sat.timestampMs;
+        QString packetLossText = "N/A";
+
+        // The storm is still a demo button, but this makes the detail panel feel like it noticed the same event.
+        if (stormIsActive)
+        {
+            // During storm mode we nudge the detail panel language a bit so it matches the scene mood.
+            if (sat.name == "SAT_3")
+            {
+                packetLossText = "Storm Risk";
+                healthStatus = "Storm Watch";
+            }
+            else if (sat.name == "SAT_2")
+            {
+                packetLossText = "Low Risk";
+            }
+        }
 
         ui->SatelliteName_Label->setText(sat.name);
         ui->LinkStatus_Connection->setText(sat.linkStatus);
-        ui->PacketLoss_Connection->setText("N/A");
+        ui->PacketLoss_Connection->setText(packetLossText);
         ui->Latency_Data->setText(QString::number(latency) + " ms");
         ui->Battery_Data->setText(QString::number(sat.battery, 'f', 2));
         ui->Temprature_Data->setText(QString::number(sat.temperature, 'f', 2));
@@ -456,7 +337,7 @@ void mainwindow::ApplySelectedSatellite()
 }
 
 // This is the "backend is asleep or empty" state where we hide the juicy telemetry stuff.
-void mainwindow::ShowNoTelemetryState()
+void mainwindow::ShowNoTelemetryState(const QString& message)
 {
     ui->SatelliteTable->setEnabled(false);
     ui->SatelliteTable->clearSelection();
@@ -468,17 +349,21 @@ void mainwindow::ShowNoTelemetryState()
     ui->layoutWidget->setVisible(false);
     ui->layoutWidget_2->setVisible(false);
 
-    ClearDetailLabels(ui);
+    DashboardUiHelper::ClearDetailLabels(ui);
 
     if (noSatelliteLabel != nullptr)
     {
-        noSatelliteLabel->setText("No active satellite connection");
+        noSatelliteLabel->setText(message);
         noSatelliteLabel->show();
         noSatelliteLabel->raise();
     }
 
+    operatorActionBox.SetRepairEnabled(false);
+    operatorActionBox.HideMessage();
+
     if (ui->OrbitView != nullptr)
     {
+        // If the backend is gone, the 3D view should also stop pretending a satellite is still selected.
         ui->OrbitView->SetSelectedSatellite(QString());
         ui->OrbitView->SetSatelliteLinkStatus("Disconnected");
     }
@@ -497,7 +382,7 @@ void mainwindow::ShowNoSelectionState()
     ui->layoutWidget->setVisible(false);
     ui->layoutWidget_2->setVisible(false);
 
-    ClearDetailLabels(ui);
+    DashboardUiHelper::ClearDetailLabels(ui);
 
     if (noSatelliteLabel != nullptr)
     {
@@ -505,6 +390,9 @@ void mainwindow::ShowNoSelectionState()
         noSatelliteLabel->show();
         noSatelliteLabel->raise();
     }
+
+    operatorActionBox.SetRepairEnabled(false);
+    operatorActionBox.HideMessage();
 
     if (ui->OrbitView != nullptr)
     {
@@ -521,6 +409,8 @@ void mainwindow::ShowTelemetryState()
     ui->DatabaseTable->setVisible(true);
     ui->layoutWidget->setVisible(true);
     ui->layoutWidget_2->setVisible(true);
+
+    operatorActionBox.SetRepairEnabled(true);
 
     if (noSatelliteLabel != nullptr)
     {
@@ -555,8 +445,9 @@ void mainwindow::RefreshTelemetryView()
     const QString dbpath = activeDatabasePath;
     if (dbpath.isEmpty())
     {
+        // No DB path means backend probably is not running yet, so we switch to the friendly empty state.
         selectedSatelliteName.clear();
-        ShowNoTelemetryState();
+        ShowNoTelemetryState("Backend not running");
         return;
     }
 
@@ -567,10 +458,10 @@ void mainwindow::RefreshTelemetryView()
     int rc = sqlite3_open_v2(dbPathUtf8.constData(), &DB, SQLITE_OPEN_READONLY, nullptr);
     if (rc != SQLITE_OK)
     {
-        std::cerr << "Failed to open database ERROR  : " << sqlite3_errmsg(DB) << "\n";
+        // Same idea here: if SQLite will not open, we do not spam logs and panic.
         sqlite3_close(DB);
         selectedSatelliteName.clear();
-        ShowNoTelemetryState();
+        ShowNoTelemetryState("Backend not running");
         return;
     }
 
@@ -586,7 +477,7 @@ void mainwindow::RefreshTelemetryView()
 
     if (sqlite3_prepare_v2(DB, sql, -1, &stmt, nullptr) == SQLITE_OK)
     {
-        qint64 currentTime = NowMs();
+        qint64 currentTime = DashboardUiHelper::NowMs();
 
         // Each row here is already "latest row for a satellite", so this becomes the top selection list.
         while (sqlite3_step(stmt) == SQLITE_ROW)
@@ -594,6 +485,7 @@ void mainwindow::RefreshTelemetryView()
             const unsigned char* satName = sqlite3_column_text(stmt, 0);
             if (satName == nullptr)
             {
+                // Null satellite names are junk rows for our UI purposes, so we just step past them.
                 continue;
             }
 
@@ -604,14 +496,18 @@ void mainwindow::RefreshTelemetryView()
             sat.temperature = sqlite3_column_double(stmt, 3);
             sat.receivedMs = sqlite3_column_int64(stmt, 4);
             sat.timestampMs = sqlite3_column_int64(stmt, 5);
-            sat.linkStatus = GetLinkStatus(currentTime - sat.receivedMs);
+            sat.linkStatus = DashboardUiHelper::LinkStatus(currentTime - sat.receivedMs);
 
             satellites.push_back(sat);
         }
     }
     else
     {
-        std::cerr << "Prepare has failed , Error in file mainwindow.cpp \n";
+        selectedSatelliteName.clear();
+        ShowNoTelemetryState("No telemetry yet");
+        sqlite3_finalize(stmt);
+        sqlite3_close(DB);
+        return;
     }
 
     sqlite3_finalize(stmt);
@@ -620,7 +516,7 @@ void mainwindow::RefreshTelemetryView()
     if (satellites.isEmpty())
     {
         selectedSatelliteName.clear();
-        ShowNoTelemetryState();
+        ShowNoTelemetryState("No telemetry yet");
         return;
     }
 
@@ -639,12 +535,14 @@ void mainwindow::RefreshTelemetryView()
 
     if (selectedSatelliteName.isEmpty())
     {
+        // Telemetry exists, but no one is picked yet so we stay in the calm state.
         ShowNoSelectionState();
         return;
     }
 
     if (selectedRow < 0)
     {
+        // If the previously selected satellite vanished from the fresh query, we clear selection instead of lying.
         selectedSatelliteName.clear();
         ShowNoSelectionState();
         return;
@@ -659,6 +557,7 @@ void mainwindow::RefreshTelemetryView()
 }
 
 // Hunts down the real Soul.db file instead of blindly trusting one build folder copy.
+//Turned out to be a necessity its a hack its useless hack
 QString mainwindow::ResolveDatabasePath() const
 {
     const QString appDirDb = QDir(QCoreApplication::applicationDirPath()).filePath("Soul.db");
@@ -688,6 +587,7 @@ QString mainwindow::ResolveDatabasePath() const
         QFileInfo info(path);
         if (!info.exists() || info.size() == 0)
         {
+            // Missing or zero-byte DB files are just decoys, so we skip them early.
             continue;
         }
 
@@ -697,6 +597,7 @@ QString mainwindow::ResolveDatabasePath() const
 
         if (sqlite3_open_v2(dbPathUtf8.constData(), &DB, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK)
         {
+            // Some candidates are stale or locked weirdly, and that is okay, we just keep hunting.
             sqlite3_close(DB);
             continue;
         }
@@ -733,11 +634,13 @@ QString mainwindow::ResolveDatabasePath() const
 
         if (!hasTelemetryTable)
         {
+            // If the DB exists but has no Telemetry table, it is not our active backend file.
             continue;
         }
 
         if (telemetryRowCount > 0)
         {
+            // Prefer the newest DB that actually has telemetry rows.
             if (bestPathWithRows.isEmpty() || info.lastModified() > bestWithRowsTime)
             {
                 bestPathWithRows = path;
@@ -746,6 +649,7 @@ QString mainwindow::ResolveDatabasePath() const
         }
         else if (bestEmptyPath.isEmpty() || info.lastModified() > bestEmptyTime)
         {
+            // Keep one empty-but-valid fallback path around in case the backend created the DB before writing rows.
             bestEmptyPath = path;
             bestEmptyTime = info.lastModified();
         }

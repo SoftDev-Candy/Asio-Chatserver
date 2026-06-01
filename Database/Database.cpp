@@ -10,6 +10,8 @@ sqlite3* Database::DB;
 
 int Database::Database_init()
 {
+    // One-time DB setup path for the receiver.
+    // Open first, create tables second, then the rest of the backend can write without thinking about setup.
     Create_DB();
     CreateTable();
     return 0;
@@ -22,6 +24,7 @@ int Database::Create_DB()
 
     if (rc != SQLITE_OK)
     {
+        // If the DB cannot open, the receiver has nowhere to persist telemetry, so we stop early.
         std::cerr<<"Failed to open database ERROR  : "<<sqlite3_errmsg(DB)<<"\n";
         sqlite3_close(DB);
         return 1;
@@ -57,6 +60,7 @@ int Database::CreateTable()
     int rc = sqlite3_exec(DB,sql,nullptr,nullptr,&error_msg);
     if (rc != SQLITE_OK)
     {
+        // Table creation failing usually means the DB file exists but is in a weird/bad state.
         std::cerr<<"Failed to Create Table in database ERROR  : "<<error_msg<<"\n";
         sqlite3_close(DB);
         return 1;
@@ -92,6 +96,7 @@ const int Database::InsertTelemetry(const TelemetryFrame &tframe , uint64_t rece
     int rc = sqlite3_prepare_v2(DB,sql,-1,&stmt,nullptr);
     if(rc != SQLITE_OK)
     {
+        // Prepare failure means the insert statement itself did not compile in SQLite land.
         return 1;
     }
 
@@ -108,6 +113,8 @@ const int Database::InsertTelemetry(const TelemetryFrame &tframe , uint64_t rece
     sqlite3_finalize(stmt);
     if(rc != SQLITE_DONE)
     {
+        // SQLITE_DONE is the happy path here.
+        // Anything else means the row never actually landed in the DB.
         std::cerr<<"Ran into an Error during insertion of frame into the database"<<std::endl;
         return 1;
 

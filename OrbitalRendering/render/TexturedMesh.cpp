@@ -120,7 +120,7 @@ void TexturedMesh::Draw(QOpenGLShaderProgram* program, int textureUnit, const ch
     }
 
     // This draw helper assumes the caller already set matrices and any other shared uniforms.
-    // It just binds the texture, yeets the draw call, and minds its business.
+    // Bind the texture, issue the draw call, then release the temporary state.
     texture->bind(textureUnit);
     program->setUniformValue(uniformName, textureUnit);
 

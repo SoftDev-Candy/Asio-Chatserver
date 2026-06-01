@@ -10,7 +10,8 @@
 #include <string>
 #include <boost/json.hpp>
 
-//Atomic Unit of state update basically a message system
+// This is the packet that travels from sender -> receiver -> DB -> UI.
+// If this struct changes, almost every layer in the project needs to agree with it.
 struct TelemetryFrame
 {
     std::string sat_id{};//Satellite id to show distinction between Satellite.
@@ -27,11 +28,11 @@ struct TelemetryFrame
     //Same thing as the battery can be used to measure a lot of things
     float temp_c{};
 
-    //Convert or serialize string To Json//
+    // Packs the struct into JSON because that is the format the TCP framing layer ships around.
      std::string ToJson()const ;
 
-    //From deserialize the returned string from ToJson() Function//
-    //Its optional because some data may or may not have entry, and we want that to be safe
+    // Unpacks JSON back into a telemetry frame.
+    // Optional is used so bad payloads can fail safely instead of blowing up the whole receive loop.
     static std::optional<TelemetryFrame> FromJson(const std::string& json);
 };
 

@@ -153,7 +153,13 @@ if(SOUL_BUILD_UI)
             ui/main.cpp
             ui/mainwindow.h
             ui/mainwindow.cpp
+            ui/DashboardUiHelper.hpp
+            ui/DashboardUiHelper.cpp
+            ui/OperatorActionBox.hpp
+            ui/OperatorActionBox.cpp
             ui/mainwindow.ui
+            OrbitalRendering/main/OrbitViewSceneHelper.hpp
+            OrbitalRendering/main/OrbitViewSceneHelper.cpp
                 OrbitalRendering/main/orbitview.cpp
                 OrbitalRendering/main/orbitview.hpp
             OrbitalRendering/Shader/ShaderSource.hpp

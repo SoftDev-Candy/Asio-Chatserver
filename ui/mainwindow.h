@@ -1,6 +1,9 @@
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
+#include "../Common/ScenarioState.hpp"
+#include "DashboardUiHelper.hpp"
+#include "OperatorActionBox.hpp"
 #include <QWidget>
 #include <QVector>
 #include <QTimer>
@@ -36,12 +39,6 @@ private:
         double temperature = 0.0;
     };
 
-    // Sets up the satellite table so it behaves like a selection list instead of a raw dump.
-    void ConfigureSatelliteTable();
-    // Sets up the telemetry table so it shows recent packets for the chosen satellite.
-    void ConfigureTelemetryTable();
-    // Styles the widgets a bit and nudges the left/right info panels into the middle of their boxes.
-    void StyleTheUi();
     // Copies the latest row for each satellite into the visible list.
     void PopulateSatelliteTable();
     // Copies recent telemetry rows for the selected satellite into the lower table.
@@ -49,15 +46,23 @@ private:
     // Pushes the currently selected satellite values into the detailed labels and Orbitview.
     void ApplySelectedSatellite();
     // Switches the operator UI into the "nothing is alive right now" state.
-    void ShowNoTelemetryState();
+    void ShowNoTelemetryState(const QString& message);
     // Hides the detailed telemetry widgets until the operator has a satellite picked.
     void ShowNoSelectionState();
     // Brings the detailed widgets back once telemetry exists again.
     void ShowTelemetryState();
     // Handles row clicks in the satellite table and remembers which satellite the operator chose.
     void OnSatelliteRowClicked(int row, int column);
-    // Finds the database file that actually has telemetry instead of the empty build goblin copy.
+    // Finds the database file that actually has telemetry instead of an empty build copy.
     QString ResolveDatabasePath() const;
+    // Button handler for kicking off the storm scenario.
+    void OnTriggerSolarStorm();
+    // Button handler for putting the scene back to normal.
+    void OnResetScenario();
+    // Button handler for sending a repair order for whichever satellite is selected.
+    void OnRepairSelectedSatellite();
+    // Drops a tiny operator command into SQLite so the sender can pick it up next loop.
+    bool InsertRepairCommand(const QString& satelliteName);
 
     Ui::mainwindow *ui;
     QTimer* refreshTimer = nullptr;
@@ -65,6 +70,9 @@ private:
     QString selectedSatelliteName;
     QString activeDatabasePath;
     QLabel* noSatelliteLabel = nullptr;
+    // The storm/repair buttons and labels live in their own helper now so this class can breathe a little.
+    OperatorActionBox operatorActionBox;
+    bool stormIsActive = false;
 
 };
 

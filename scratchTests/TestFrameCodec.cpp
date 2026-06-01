@@ -10,6 +10,8 @@
 
     int main()
     {
+        // Tiny scratch test file for the two most basic shared pieces:
+        // telemetry JSON conversion and the frame-size header codec.
         TelemetryFrame tf;
         tf.sat_id = "SAT_1";
         tf.sequence = 482094824;
@@ -23,6 +25,7 @@
         auto encode = tf.FromJson(tojsontest1);
         if (encode)
         {
+            // If this prints the same values we started with, the JSON round-trip behaved itself.
 
             std::cout<<encode->sat_id<<"\n";
             std::cout<<encode->sequence<<"\n";
@@ -40,6 +43,8 @@
 
         if (encoded.size() == 4 + json_size)
         {
+            // Header is 4 bytes, payload is the raw JSON string.
+            // So this check is the quick "math still mathing" sanity test.
             for (size_t i = 0 ; i < 4 ; i++)
             {
                 std::cout<<static_cast<int>(encoded[i])<<" ";

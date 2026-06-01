@@ -14,11 +14,14 @@ class Database
 private:
 
 public:
-    static int Database_init(); // Initialize database or open it basically for changing of data//
+    // Opens the SQLite file and makes sure the needed tables exist before the server starts writing rows.
+    static int Database_init();
     static int Create_DB();
     static int CreateTable();
     static void Terminate();//Closes database and will terminate any processes that need to be terminated
-    static const int InsertTelemetry(const TelemetryFrame& tframe , uint64_t received_ms) ;//Add data to the db
+
+    // Writes one telemetry frame plus the receiver-side timestamp into the Telemetry table.
+    static const int InsertTelemetry(const TelemetryFrame& tframe , uint64_t received_ms) ;
 
     //FIXME -- I need to do something about keeping this static not a good solution making it static or global
     static sqlite3* DB; // Database connection obj

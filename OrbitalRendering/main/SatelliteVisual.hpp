@@ -11,12 +11,12 @@
 class SatelliteVisual
 {
 public:
-    // These are the fun knobs for the orbit.
+    // These are the orbit knobs.
     // radius = how far from Earth we are
     // angle = where the satellite currently is
     // speed = how fast it moves around
     // tilt = how slanted the orbit plane is
-    // phase = where the orbit starts so all satellites are not piled on top of each other
+    // phase = where the orbit starts so all satellites are not stacked in the same place
     // scale = how chunky the model looks in the scene
     float orbitRadius = 2.1f;
     float orbitAngle = 0.0f;
@@ -36,7 +36,8 @@ public:
 
     // Builds the model matrix for the satellite from its orbit settings.
     QMatrix4x4 GetModelMatrix() const;
-};
 
+    // TODO: If we ever want elliptical orbits, this class is where the likkle upgrade should live.
+};
 
 #endif //SOUL_SATELLITEVISUAL_HPP

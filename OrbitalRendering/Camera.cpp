@@ -16,8 +16,7 @@ QMatrix4x4 Camera::GetViewMatrix() const
     float yawRadius = qDegreesToRadians(cam_yaw);
     float pitchRadius = qDegreesToRadians(cam_pitch);
 
-    // Break the orbit into plain xyz pieces first.
-    // It is not fancy, but it is super readable when future-us is running on one brain cell.
+    // Break the orbit into plain xyz pieces first so the math stays easy to follow.
     float x = cam_distance * qCos(pitchRadius) * qSin(yawRadius);
     float y = cam_distance * qSin(pitchRadius);
     float z = cam_distance * qCos(pitchRadius) * qCos(yawRadius);
@@ -35,7 +34,7 @@ QMatrix4x4 Camera::GetViewMatrix() const
 
 QMatrix4x4 Camera::GetProjectionMatrix(float aspect) const
 {
-    // Same camera lens as before. Keeping it simple and not letting feature creep cook us.
+    // Basic perspective projection for the current widget aspect ratio.
     QMatrix4x4 projection;
     projection.setToIdentity();
     projection.perspective(cam_fov, aspect, 0.1f, 100.0f);
@@ -67,7 +66,7 @@ void Camera::AddPitch(float pitch_delta)
 
 void Camera::AddZoom(float zoom_delta)
 {
-    // Basic zoom math. Nothing galaxy-brain here, just vibes and guard rails.
+    // Basic zoom math with clamp checks so the camera stays usable.
     cam_distance += zoom_delta;
 
     if (cam_distance < cam_minDistance)

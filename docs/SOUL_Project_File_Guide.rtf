@@ -1,0 +1,140 @@
+{\rtf1\ansi\deff0
+{\fonttbl{\f0 Calibri;}{\f1 Consolas;}}
+\fs22
+\b SOUL Project File Guide\b0\par
+Secure Orbital Uplink Layer quick file walkthrough. This is the short-but-deep version so you can read it fast and still know where the real stuff lives.\par
+\par
+\b What this guide covers\b0\par
+This guide covers project-owned files and folders. I grouped third-party/vendor code like \f1 external/glm \f0 and \f1 external/sqlite \f0 together instead of pretending you want a 400-file side quest.\par
+\par
+\b Whole project in one sentence\b0\par
+Sender builds telemetry -> FrameCodec wraps it -> receiver accepts it -> SQLite stores it -> Qt UI reads it -> OrbitView visualizes it -> scenario buttons and repair commands push back into the sim. Nice little loop fr fr.\par
+\par
+\b Top level files\b0\par
+\b README.md\b0 : Human overview, feature list, run steps, and demo media entry point.\par
+\b CMakeLists.txt\b0 : Build map for all targets: receiver, sender, UI, SQLite static lib, and Boost JSON shim.\par
+\b scenario_state.txt\b0 : Tiny shared state file used by the UI and sender so Solar Storm mode can sync without building a whole command server.\par
+\par
+\b Common/\b0\par
+\b Common/TelemetryFrame.hpp\b0 : Defines the core telemetry packet fields used by the whole project: satellite id, sequence, timestamp, battery, and temperature.\par
+\b Common/TelemetryFrame.cpp\b0 : Serializes telemetry to JSON and safely validates/parses it back using Boost.JSON.\par
+\b Common/FrameCodec.hpp\b0 : Declares the length-prefixed framing helpers used on the TCP socket.\par
+\b Common/FrameCodec.cpp\b0 : Adds a 4-byte big-endian payload size header and reads it back safely on the receive side.\par
+\b Common/ScenarioState.hpp\b0 : Shared scenario enum and helpers for Normal, Solar Storm, and Recovery. Also reads/writes the small shared scenario text file.\par
+\b Common/BoostJson.cpp\b0 : One-file Boost.JSON implementation shim so the project does not need a prebuilt Boost.JSON binary.\par
+\par
+\b ReceiverServer/\b0\par
+\b ReceiverServer/main.cpp\b0 : Tiny bootstrap that starts the backend listener on port 5000.\par
+\b ReceiverServer/SatelliteSim.hpp\b0 : Declares the TCP receiver class, accept loop, per-client handler, and in-memory latest telemetry map.\par
+\b ReceiverServer/SatelliteSim.cpp\b0 : Accepts sender connections, decodes frames, validates telemetry, stores rows in SQLite, and replies with ACK frames.\par
+\par
+\b Database/\b0\par
+\b Database/Database.hpp\b0 : Static database helper for init, table creation, inserts, and shutdown.\par
+\b Database/Database.cpp\b0 : Opens \f1 Soul.db\f0 , creates \f1 Telemetry\f0 and \f1 ControlCommands\f0 , and writes telemetry rows from the receiver loop.\par
+\par
+\b SatelliteSender/\b0\par
+\b SatelliteSender/main.cpp\b0 : Tiny sender bootstrap that calls \f1 TelemetryHub::runClient()\f0 .\par
+\b SatelliteSender/TelemetryHub.hpp\b0 : Declares the sender loop and client socket bootstrap.\par
+\b SatelliteSender/TelemetryHub.cpp\b0 : Owns the three simulated satellites, polls repair commands from SQLite, reads scenario state, sends framed telemetry, and waits for ACK after each frame.\par
+\par
+\b simulation/\b0\par
+\b simulation/SimulationState.hpp\b0 : Declares per-satellite behavior state like battery drain, temp drift, signal loss, and repair cooldown.\par
+\b simulation/SimulationState.cpp\b0 : Generates believable telemetry per tick, applies storm damage/recovery logic, and can temporarily improve a satellite when a repair command lands.\par
+\par
+\b ui/\b0\par
+\b ui/main.cpp\b0 : Qt app bootstrap.\par
+\b ui/mainwindow.ui\b0 : Base widget layout made in Qt Designer. Holds the two top status panels, the satellite table, telemetry table, and the promoted OrbitView widget.\par
+\b ui/OperatorActionBox.hpp\b0 : Small helper class that owns the hand-built operator controls like storm/reset/repair and the warning/message labels.\par
+\b ui/OperatorActionBox.cpp\b0 : Builds and styles those extra buttons/labels so \f1 mainwindow.cpp \f0 stays lighter.\par
+\b ui/mainwindow.h\b0 : Main dashboard class declaration, telemetry refresh helpers, selection state, and DB lookup helpers.\par
+\b ui/mainwindow.cpp\b0 : The operator brain. Reads SQLite, fills both tables, updates detail labels, forwards selection to OrbitView, triggers scenarios, and inserts repair commands.\par
+\par
+\b OrbitalRendering/\b0\par
+\b OrbitalRendering/Camera.hpp\b0 : Orbit camera interface for yaw, pitch, zoom, reset, and matrix generation.\par
+\b OrbitalRendering/Camera.cpp\b0 : Converts camera orbit values into view/projection matrices used by OpenGL.\par
+\b OrbitalRendering/Shader/ShaderSource.hpp\b0 : Stores shader source strings for Earth, satellites, orbit lines, glow points, stars, and storm effects.\par
+\b OrbitalRendering/render/MeshData.hpp\b0 : Small packed CPU-side mesh container: interleaved vertices + indices.\par
+\b OrbitalRendering/render/ObjLoader.hpp\b0 : Declares the OBJ-to-MeshData loader function.\par
+\b OrbitalRendering/render/ObjLoader.cpp\b0 : Parses OBJ positions, UVs, normals, face tokens, and packs them into the exact 8-float vertex layout the renderer expects.\par
+\b OrbitalRendering/render/TexturedMesh.hpp\b0 : Reusable mesh wrapper for VAO/VBO/EBO/texture ownership.\par
+\b OrbitalRendering/render/TexturedMesh.cpp\b0 : Loads OBJ data, uploads it to GL, creates the texture, and draws the mesh with the current shader program.\par
+\b OrbitalRendering/main/SatelliteVisual.hpp\b0 : Orbit math-only helper for satellite radius, angle, speed, tilt, phase, and scale.\par
+\b OrbitalRendering/main/SatelliteVisual.cpp\b0 : Updates orbit motion over time and builds the model matrix for each satellite.\par
+\b OrbitalRendering/main/orbitview.hpp\b0 : Declares the main OpenGL widget and all scene-side state for Earth, satellites, stars, storm visuals, and repair tinting.\par
+\b OrbitalRendering/main/orbitview.cpp\b0 : The visual heart of the demo. Draws the star backdrop, Earth, orbit trails, satellites, glow markers, storm pulse/wave, and repair recovery cues while keeping camera movement alive.\par
+\par
+\b scratchTests/\b0\par
+\b scratchTests/TestFrameCodec.cpp\b0 : Tiny manual sanity test for JSON round-trip and the frame header math.\par
+\par
+\b docs/\b0\par
+\b docs/01_requirement.md\b0 : Project requirement / scope notes.\par
+\b docs/02_protocol.md\b0 : Framed TCP payload + ACK flow summary.\par
+\b docs/03_architecture.md\b0 : System architecture write-up.\par
+\b docs/SOUL.gif, SOUL_preview.gif, SOUL.mp4\b0 : Demo media.\par
+\b docs/KanbanBoard.png, TimeLineview.png\b0 : Planning / project tracking visuals.\par
+\par
+\b Vendor folders\b0\par
+\b external/sqlite/\b0 : Bundled SQLite source so the project can build the DB layer directly.\par
+\b external/glm/\b0 : Math library used mainly by the OBJ loader and rendering helpers.\par
+\par
+\b Code snippets worth caring about\b0\par
+\par
+\b 1. Core telemetry packet\b0\par
+{\f1
+struct TelemetryFrame \{\par
+    std::string sat_id;\par
+    uint64_t sequence;\par
+    uint64_t timestamp_ms;\par
+    float battery;\par
+    float temp_c;\par
+\};\par
+}\f0
+Why it matters: this is the one shape that touches sender, receiver, DB, and UI. If this changes, basically everything changes.\par
+\par
+\b 2. Frame codec idea\b0\par
+{\f1
+buffer.push_back((json_size >> 24) \& 0xFF);\par
+buffer.push_back((json_size >> 16) \& 0xFF);\par
+buffer.push_back((json_size >> 8) \& 0xFF);\par
+buffer.push_back(json_size \& 0xFF);\par
+}\f0
+Why it matters: TCP is a byte stream, not a message queue, so this 4-byte header is what tells the receiver where one telemetry message ends and the next one begins.\par
+\par
+\b 3. Simulation personality hook\b0\par
+{\f1
+if (mode == SatelliteMode::PowerDrain \&\& stormIsActive)\par
+\{\par
+    batteryDropThisTick += 0.80f;\par
+\}\par
+}\f0
+Why it matters: this is the main trick that makes SAT\_1, SAT\_2, and SAT\_3 feel different instead of being clone spam.\par
+\par
+\b 4. Repair command handoff\b0\par
+{\f1
+INSERT INTO ControlCommands (satellite_name, command, created_ms, processed)\par
+VALUES (?, 'REPAIR', ?, 0)\par
+}\f0
+Why it matters: this is the small bridge that lets the operator dashboard push an action back into the running sim without rewriting the networking layer.\par
+\par
+\b 5. OrbitView selection rule\b0\par
+{\f1
+if (hasSelection \&\& !isSelected)\par
+\{\par
+    continue;\par
+\}\par
+}\f0
+Why it matters: this is the reason the scene can show all satellites by default, then isolate just one when the operator clicks its row.\par
+\par
+\b Best files to read first if you only have 15 minutes\b0\par
+1. \f1 README.md\f0\par
+2. \f1 Common/TelemetryFrame.hpp\f0 + \f1 Common/FrameCodec.cpp\f0\par
+3. \f1 SatelliteSender/TelemetryHub.cpp\f0\par
+4. \f1 ReceiverServer/SatelliteSim.cpp\f0\par
+5. \f1 ui/mainwindow.cpp\f0\par
+6. \f1 OrbitalRendering/main/orbitview.cpp\f0\par
+\par
+\b Tiny reading order if you want the real project flow\b0\par
+Sender main -> TelemetryHub -> SimulationState -> FrameCodec -> SatelliteSim -> Database -> mainwindow -> OrbitView.\par
+\par
+End of guide. Short enough to survive, deep enough to actually help. Nice.\par
+}

@@ -23,7 +23,7 @@ public:
     // Yaw is the left-right orbit move. Very spinny, much wow.
     void AddYaw(float yaw_delta);
 
-    // Pitch is the up-down orbit move. We clamp it so the camera does not flip and become sus.
+    // Pitch is the up-down orbit move. We clamp it so the camera does not flip over.
     void AddPitch(float pitch_delta);
 
     // Zoom pushes the camera closer or farther from Earth.
@@ -32,7 +32,7 @@ public:
     // TODO: Either wire this up for keyboard input later or delete it if it stays homeless.
     void CameraControls();
 
-    // Resets the camera back to the starting view if things get too chaotic, irie style.
+    // Resets the camera back to the starting view.
     void CameraReset();
 
 private:
@@ -51,7 +51,7 @@ private:
     // Width of the camera lens in degrees.
     float cam_fov = 45.0f;
 
-    // Little guard rails so the mouse wheel does not yeet us into the core or out to Pluto.
+    // Distance limits so zooming stays in a useful range.
     float cam_minDistance = 1.5f;
     float cam_maxDistance = 20.0f;
 };

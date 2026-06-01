@@ -1,8 +1,8 @@
 # SOUL Architecture
 
 > [!WARNING]
-> This is still a student-project architecture doc, not a giant enterprise diagram cathedral.
-> But it is finally updated enough that future-us might not cry as much.
+> This is still a student-project architecture doc, not a giant multimillion dollar crowd funded project ........... ┌( ಠ_ಠ)┘.
+> But it is finally updated enough for me to not cry about it ....yet
 
 ## Current Shape
 

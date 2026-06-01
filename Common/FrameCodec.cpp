@@ -44,12 +44,14 @@ std::string FrameCodec::DecodeFrame(boost::asio::ip::tcp::socket& socket)
 
     if (error == boost::asio::error::eof)
     {
+        // EOF here means the other side closed nicely-ish, so we do not keep reading ghost bytes.
         std::cerr<<" DecoderFrame: Peer Closed Connection  End of file(EOF) Error"<<std::endl;
         return {};
     }
 
     if (error)
     {
+        // Any other socket read issue means the frame is busted for this round.
         std::cerr<<"DecodeFrame: failed to read header"<<std::endl;
         return {};//if Some other error Stop handling this client and return empty
     }
@@ -69,6 +71,7 @@ std::string FrameCodec::DecodeFrame(boost::asio::ip::tcp::socket& socket)
     //If payload length is 0 or too big send error else set payload
     if ( payload_length == 0|| payload_length > Max_Frame_Size)
     {
+        // This guards against empty payloads and suspiciously large lengths.
         std::cerr<<"DecodeFrame: payload length incorrect"<<payload_length<<std::endl;
         return {};
     }
@@ -80,6 +83,7 @@ std::string FrameCodec::DecodeFrame(boost::asio::ip::tcp::socket& socket)
     //Error Checks in case of connection closed or error thrown
     if (error == boost::asio::error::eof)
     {
+        // Same story as above, except this time the disconnect happened in the middle of payload read.
         std::cerr << "DecodeFrame: peer closed connection while reading payload (EOF)"<<std::endl;
         return {};
     }

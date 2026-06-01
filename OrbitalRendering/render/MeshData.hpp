@@ -7,12 +7,15 @@
 
 #include<vector>
 
-//Struct to store mesh data
+// Small packed mesh container used by the OBJ loader and the GL upload helper.
+// vertices = interleaved float buffer, indices = triangle index list.
 struct MeshData
 {
+    // Layout is: position xyz, uv, normal xyz.
+    std::vector<float>vertices;
 
-std::vector<float>vertices; //X Y Z  | X Y Z
-std::vector<unsigned int>indices;// 0 1 2 3
+    // Triangle indices that point into the packed vertex buffer.
+    std::vector<unsigned int>indices;
 
 };
 

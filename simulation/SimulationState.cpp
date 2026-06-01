@@ -26,7 +26,7 @@ SimulationState::SimulationState(
 }
 
 //Controls how to simulation works --Simple but effective for my use cases
-std::optional<TelemetryFrame> SimulationState::MakeNextFrame()
+std::optional<TelemetryFrame> SimulationState::MakeNextFrame(ScenarioState scenarioState)
 {
     tick_counter++;
 
@@ -36,26 +36,57 @@ std::optional<TelemetryFrame> SimulationState::MakeNextFrame()
     // These are the actual values we will use for this specific tick after the mode tweaks them.
     float batteryDropThisTick = battery_drain_per_frame;
     float tempMoveThisTick = temperature_drift_per_frame;
+    bool stormIsActive = (scenarioState == ScenarioState::SolarStormActive);
+    bool recoveryIsActive = (scenarioState == ScenarioState::Recovery);
+    bool repairIsWorking = repair_ticks_left > 0;
 
-    // Mode is the "what kind of bad day is this satellite having" switch.
-    if (mode == SatelliteMode::PowerDrain)
+    // This is where the active scenario changes how the next packet should look.
+    // Normal = mostly chill.
+    // Storm = SAT_2 and SAT_3 start taking extra damage.
+    // Recovery = stop the extra storm effects and let temperature calm down a bit.
+    if (mode == SatelliteMode::PowerDrain && stormIsActive)
     {
         batteryDropThisTick += 0.80f;
     }
-    else if (mode == SatelliteMode::Overheating)
+    else if (mode == SatelliteMode::Overheating && stormIsActive)
     {
         tempMoveThisTick += 0.10f;
     }
     else if (mode == SatelliteMode::SignalLoss)
     {
-        // SAT_3 still keeps heating while the radio acts flaky.
-        tempMoveThisTick += 0.04f;
-
-        // Every so often, pretend the radio goes quiet for a couple of frames.
-        if (signal_loss_ticks_left <= 0 && tick_counter % 8 == 0)
+        if (stormIsActive)
         {
-            signal_loss_ticks_left = 2;
+            // SAT_3 heats up more during the storm and can briefly stop sending.
+            tempMoveThisTick += 0.16f;
+
+            // Every so often, pretend the radio goes quiet for a couple of frames.
+            // Repair mode blocks this little radio tantrum for a few sends.
+            if (!repairIsWorking && signal_loss_ticks_left <= 0 && tick_counter % 7 == 0)
+            {
+                signal_loss_ticks_left = 2;
+            }
         }
+        else if (recoveryIsActive)
+        {
+            // Recovery does not magically heal everything, but it does stop the storm from cooking SAT_3 harder.
+            tempMoveThisTick -= 0.05f;
+            signal_loss_ticks_left = 0;
+        }
+        else
+        {
+            // No storm, no radio nonsense.
+            signal_loss_ticks_left = 0;
+        }
+    }
+
+    // Repair is a small temporary buff, not magic.
+    // It cuts down the bad stuff for a few ticks so the operator sees a recovery trend.
+    if (repairIsWorking)
+    {
+        batteryDropThisTick *= 0.35f;
+        tempMoveThisTick -= 0.12f;
+        signal_loss_ticks_left = 0;
+        repair_ticks_left--;
     }
 
     // this here is a an engine it goes chooooo chooo: each satellite burns battery and shifts temperature at its own pace.
@@ -83,4 +114,19 @@ std::optional<TelemetryFrame> SimulationState::MakeNextFrame()
     tf.timestamp_ms = timestamp_val;
 
     return tf;
+}
+
+const std::string& SimulationState::GetSatelliteId() const
+{
+    return sat_id;
+}
+
+void SimulationState::ApplyRepairCommand()
+{
+    // Repair is intentionally simple:
+    // bump the battery a little, cool the satellite down, and stop the current signal-drop streak.
+    battery = std::min(100.0f, battery + 8.0f);
+    temp_c = std::max(18.0f, temp_c - 5.5f);
+    signal_loss_ticks_left = 0;
+    repair_ticks_left = 6;
 }

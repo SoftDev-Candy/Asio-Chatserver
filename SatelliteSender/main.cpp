@@ -9,7 +9,8 @@
 
 int main()
 {
-
+    // Client bootstrap is super small on purpose.
+    // It just starts the sender loop and lets TelemetryHub do the heavy lifting.
     TelemetryHub::runClient();
 
 }

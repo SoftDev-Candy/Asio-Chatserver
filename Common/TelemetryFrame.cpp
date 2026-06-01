@@ -39,13 +39,15 @@ std::optional<TelemetryFrame> TelemetryFrame::FromJson(const std::string &json_s
   {
 
     std::cerr<<"Failed to parse Json "<<ec.message()<<std::endl;
-    //I want to use throw, but I don't believe its necessary
+    // Parse failure here usually means the socket data was junk or half-broken.
+    // We bail out quietly with nullopt so the caller can decide what to do next.
     return std::nullopt;
 
   }
 
   if (!val_from_string.is_object())
   {
+        // If it is not even a JSON object, none of the field lookups below are worth attempting.
         std::cerr<<"Invalid JSON :expected object \n";
         return std::nullopt;
   }
@@ -56,6 +58,7 @@ std::optional<TelemetryFrame> TelemetryFrame::FromJson(const std::string &json_s
  //To check and validate if obj contain their respective values
   if (!val_obj.contains("sat_id"))
   {
+    // We validate field-by-field so bad payloads are easy to diagnose while testing.
     std::cerr << "Missing field: sat_id\n";
     return std::nullopt;
   }

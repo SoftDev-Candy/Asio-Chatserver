@@ -27,7 +27,8 @@ SatelliteSim::SatelliteSim(std::string add, unsigned short int port_i)
 void SatelliteSim::RunServer()
 {
     Database::Database_init();
-    //While to ensure the server can loop to create place for more clients
+    // This loop is the server's day job:
+    // wait for a client, hand it off to a thread, then go right back to waiting again.
     while (true)
     {
         //Create a socket here//
@@ -39,6 +40,7 @@ void SatelliteSim::RunServer()
         }
         else
         {
+            // Once the first client showed up, the log becomes a little more explicit about repeats.
             std::cout<<" Server: waiting for a new client...ClientNum :  "<<clientCount<<std::endl;
         }
 
@@ -92,6 +94,7 @@ void SatelliteSim::ReceiveTelemetry(tcp::socket &socket) const
 
         if (Decoded == "")
         {
+            // Empty decode means the peer closed up shop or the frame broke badly enough to stop the loop.
             std::cerr<<"The Decoded string was empty"<<std::endl;
             break;
         }
@@ -114,6 +117,8 @@ void SatelliteSim::ReceiveTelemetry(tcp::socket &socket) const
         }
         if (!frame)
         {
+            // Bad JSON should not kill the whole client connection instantly.
+            // We skip this one and keep listening for the next clean frame (￣y▽,￣)╭
             std::cerr<<"Frame was invalid";
             continue;
 

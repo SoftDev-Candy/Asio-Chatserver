@@ -7,7 +7,8 @@ int main()
 {
     try {
 
-        //Create a card to show this is where I am and this is what I would like to use .
+        // Tiny server bootstrap.
+        // Pick a port, build the backend, then let it run forever until somebody closes the app.
         unsigned short int PORT = 5000;
         SatelliteSim Server("127.0.0.1" , PORT);
         Server.RunServer();
